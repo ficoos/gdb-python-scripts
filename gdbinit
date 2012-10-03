@@ -16,7 +16,7 @@
 # number of reference counts it current has and the hex address the
 # object is allocated at.  The argument must be a PyObject*
 define pyo
-printf "%s\n" _PyObject_Dump($arg0)
+set $_unused_void = _PyObject_Dump($arg0)
 end
 
 # Prints a representation of the object to stderr, along with the
@@ -34,14 +34,12 @@ define pylocals
 	    set $_names = co->co_varnames
 	    set $_name = PyString_AsString(PyTuple_GetItem($_names, $_i))
 	    printf "%s:\n", $_name
-	    # side effect of calling _PyObject_Dump is to dump the object's
-	    # info - assigning just prevents gdb from printing the
-	    # NULL return value
-	    set $_val = _PyObject_Dump(f->f_localsplus[$_i])
+            pyo f->f_localsplus[$_i]
 	end
         set $_i = $_i + 1
     end
 end
+
 
 # A rewrite of the Python interpreter's line number calculator in GDB's
 # command language
@@ -143,9 +141,61 @@ class pystack(gdb.Command):
            except Exception:
               pass
         gdb.execute('select-frame 0')
-               
+
 pystack()
 end
+
+
+define pyrun
+set $glock = PyGILState_Ensure()
+call PyRun_SimpleString($arg0)
+call PyGILState_Release($glock)
+end
+
+define pyrdbg
+pyrun "import rpdb2; rpdb2.start_embedded_debugger(\"$arg0\")"
+end
+
+python
+class pyup(gdb.Command):
+    def __init__ (self):
+        super (pyup, self).__init__ ("pyup", gdb.COMMAND_OBSCURE)
+    def invoke(self, args, from_tty):
+        frame = gdb.selected_frame()
+        while True:
+           frame = frame.older()
+           if frame is None:
+               break
+           gdb.execute("up-silently")
+           try:
+              res = gdb.execute("pyframe")
+	      break
+           except Exception:
+              pass
+
+pyup()
+end
+
+python
+class pydown(gdb.Command):
+    def __init__ (self):
+        super (pydown, self).__init__ ("pydown", gdb.COMMAND_OBSCURE)
+    def invoke(self, args, from_tty):
+        frame = gdb.selected_frame()
+        while True:
+           frame = frame.newer()
+           if frame is None:
+               break
+           gdb.execute("down-silently")
+           try:
+              res = gdb.execute("pyframe")
+	      return
+           except Exception:
+              pass
+
+pydown()
+end
+
 
 # print the entire Python call stack - verbose mode
 define pystackv
@@ -160,10 +210,10 @@ end
 
 # generally useful macro to print a Unicode string
 def pu
-  set $uni = $arg0 
+  set $uni = $arg0
   set $i = 0
   while (*$uni && $i++<100)
-    if (*$uni < 0x80) 
+    if (*$uni < 0x80)
       print *(char*)$uni++
     else
       print /x *(short*)$uni++
