@@ -154,6 +154,7 @@ end
 
 define pyrdbg
 pyrun "import rpdb2; rpdb2.start_embedded_debugger(\"$arg0\")"
+cont
 end
 
 python
